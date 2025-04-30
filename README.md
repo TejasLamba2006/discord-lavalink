@@ -1,7 +1,6 @@
 # discord-lavalink
 
 <div align="center">
-  <img src="https://i.imgur.com/IG5Abk5.png" alt="discord-lavalink Logo" width="200" height="200">
   <br>
   <p>
     <a href="https://www.npmjs.com/package/discord-lavalink"><img src="https://img.shields.io/npm/v/discord-lavalink.svg?maxAge=3600" alt="NPM version" /></a>
@@ -13,6 +12,11 @@
     <a href="https://nodei.co/npm/discord-lavalink/"><img src="https://nodei.co/npm/discord-lavalink.png?downloads=true&stars=true" alt="npm installnfo" /></a>
   </p>
 </div>
+
+## Stats
+![image](https://github.com/user-attachments/assets/ae866059-679f-42fa-8062-835da319e470)
+
+Took me about 2 hours to code form scratch and publish  
 
 A powerful and easy-to-use TypeScript wrapper for [Lavalink](https://github.com/lavalink-devs/Lavalink) with Discord.js integration.
 
