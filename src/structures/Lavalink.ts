@@ -1,15 +1,8 @@
-import axios, { AxiosInstance, AxiosError } from "axios";
-import { GatewayDispatchEvents, type Client } from "discord.js";
-import { WebSocket } from "ws";
-import {
-  LavalinkOptions,
-  PlayOptions,
-  SearchType,
-  TracksResult,
-  Datum,
-  LogLevel
-} from "../types";
-import { buildLavalinkUrl, clampVolume, safeStringify } from "../utils/helpers";
+import axios, { AxiosInstance, AxiosError } from 'axios';
+import { GatewayDispatchEvents, type Client } from 'discord.js';
+import { WebSocket } from 'ws';
+import { LavalinkOptions, PlayOptions, SearchType, TracksResult, Datum, LogLevel } from '../types';
+import { buildLavalinkUrl, clampVolume, safeStringify } from '../utils/helpers';
 
 export class Lavalink {
   private readonly client: Client;
@@ -24,7 +17,7 @@ export class Lavalink {
   private reconnectAttempts = 0;
   private readonly maxReconnectAttempts: number;
   private readonly voiceUpdates: Record<string, any> = {};
-  private readonly eventListeners: Record<string, Function[]> = {};
+  private readonly eventListeners: Record<string, Array<(...args: any[]) => void>> = {};
   private readonly clientName: string;
   private readonly customHeaders: Record<string, string>;
   private readonly logLevel: LogLevel;
@@ -38,12 +31,12 @@ export class Lavalink {
     // Set custom options or defaults
     this.reconnectInterval = options.customOptions?.reconnectInterval ?? 5000;
     this.maxReconnectAttempts = options.customOptions?.maxReconnectAttempts ?? 5;
-    this.clientName = options.customOptions?.clientName ?? "discord-lavalink/1.0.0";
+    this.clientName = options.customOptions?.clientName ?? 'discord-lavalink/1.0.0';
     this.customHeaders = options.customOptions?.headers ?? {};
 
     // Create REST client
     this.rest = axios.create({
-      baseURL: this.baseUrl + "/v4",
+      baseURL: this.baseUrl + '/v4',
       headers: {
         Authorization: this.password,
       },
@@ -90,16 +83,10 @@ export class Lavalink {
       // Only attempt to send voice update if we have a session
       if (this.sessionId) {
         this.sendVoiceUpdate(guildId).catch((err) => {
-          this.log(
-            `Error handling voice state update for guild ${guildId}:`,
-            LogLevel.NORMAL,
-            err
-          );
+          this.log(`Error handling voice state update for guild ${guildId}:`, LogLevel.NORMAL, err);
         });
       } else {
-        this.log(
-          `Storing voice state update for guild ${guildId} (waiting for session)`
-        );
+        this.log(`Storing voice state update for guild ${guildId} (waiting for session)`);
       }
     });
 
@@ -120,9 +107,7 @@ export class Lavalink {
           );
         });
       } else {
-        this.log(
-          `Storing voice server update for guild ${guildId} (waiting for session)`
-        );
+        this.log(`Storing voice server update for guild ${guildId} (waiting for session)`);
       }
     });
   }
@@ -137,71 +122,63 @@ export class Lavalink {
 
     const headers: Record<string, string> = {
       Authorization: this.password,
-      "User-Id": this.client.application?.id ?? "",
-      "Client-Name": this.clientName, // gotta follow the rules or it gets mad
-      ...this.customHeaders
+      'User-Id': this.client.application?.id ?? '',
+      'Client-Name': this.clientName, // gotta follow the rules or it gets mad
+      ...this.customHeaders,
     };
 
     // Add session ID for resuming if provided
     if (resumeSessionId) {
-      headers["Session-Id"] = resumeSessionId;
+      headers['Session-Id'] = resumeSessionId;
     }
 
     this.lavalink = new WebSocket(url.toString(), { headers });
 
-    this.lavalink.on("open", () => {
-      this.log("Lavalink WebSocket connection established");
+    this.lavalink.on('open', () => {
+      this.log('Lavalink WebSocket connection established');
       this.reconnectAttempts = 0; // we good now, reset the fail counter
     });
 
-    this.lavalink.on("error", (error) => {
-      this.log("Lavalink WebSocket error:", LogLevel.NORMAL, error);
+    this.lavalink.on('error', (error) => {
+      this.log('Lavalink WebSocket error:', LogLevel.NORMAL, error);
     });
 
-    this.lavalink.on("close", (code, reason) => {
+    this.lavalink.on('close', (code, reason) => {
       this.log(`Lavalink WebSocket closed with code ${code}: ${reason}`);
       this.handleReconnect();
     });
 
-    this.lavalink.on("message", (data) => {
+    this.lavalink.on('message', (data) => {
       try {
         // Convert WebSocket data to string safely
         const messageText = safeStringify(data);
         const payload = JSON.parse(messageText);
-        this.log("Received Lavalink message:", LogLevel.DEBUG, payload.op);
+        this.log('Received Lavalink message:', LogLevel.DEBUG, payload.op);
 
-        if (payload.op === "ready") {
+        if (payload.op === 'ready') {
           this.sessionId = payload.sessionId;
-          this.log(
-            `Lavalink session established with ID: ${this.sessionId}`
-          );
+          this.log(`Lavalink session established with ID: ${this.sessionId}`);
           this.log(`Session resumed: ${payload.resumed}`);
-          this.emit("ready", payload);
+          this.emit('ready', payload);
 
           // Process any pending voice updates now that we have a session
           this.processPendingVoiceUpdates();
-        } else if (payload.op === "stats") {
+        } else if (payload.op === 'stats') {
           const statsData = { ...payload };
           delete statsData.op;
           this.stats = statsData;
-          this.emit("stats", statsData);
-        } else if (payload.op === "playerUpdate") {
-          this.log(
-            `Player update for guild ${payload.guildId}:`,
-            LogLevel.DEBUG,
-            payload.state
-          );
-          this.emit("playerUpdate", payload);
-        } else if (payload.op === "event") {
-          this.log(
-            `Event received: ${payload.type} for guild ${payload.guildId}`
-          );
+          this.emit('stats', statsData);
+        } else if (payload.op === 'playerUpdate') {
+          this.log(`Player update for guild ${payload.guildId}:`, LogLevel.DEBUG, payload.state);
+          this.emit('playerUpdate', payload);
+        } else if (payload.op === 'event') {
+          this.log(`Event received: ${payload.type} for guild ${payload.guildId}`);
           this.handleEvent(payload);
         } else {
-          this.log("Unknown payload:", LogLevel.DEBUG, payload);
+          this.log('Unknown payload:', LogLevel.DEBUG, payload);
         }
       } catch (error) {
-        this.log("Error parsing Lavalink message:", LogLevel.NORMAL, error);
+        this.log('Error parsing Lavalink message:', LogLevel.NORMAL, error);
       }
     });
   }
@@ -212,7 +189,7 @@ export class Lavalink {
    */
   private handleReconnect() {
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      this.log("Max reconnect attempts reached, giving up", LogLevel.NORMAL);
+      this.log('Max reconnect attempts reached, giving up', LogLevel.NORMAL);
       return;
     }
 
@@ -223,7 +200,7 @@ export class Lavalink {
     );
 
     setTimeout(() => {
-      this.log("Reconnecting to Lavalink...");
+      this.log('Reconnecting to Lavalink...');
       this.connect(this.sessionId); // try to pick up where we left off
     }, delay);
   }
@@ -235,20 +212,20 @@ export class Lavalink {
    */
   private handleEvent(payload: any) {
     switch (payload.type) {
-      case "TrackStartEvent":
-        this.emit("trackStart", payload);
+      case 'TrackStartEvent':
+        this.emit('trackStart', payload);
         break;
-      case "TrackEndEvent":
-        this.emit("trackEnd", payload);
+      case 'TrackEndEvent':
+        this.emit('trackEnd', payload);
         break;
-      case "TrackExceptionEvent":
-        this.emit("trackException", payload);
+      case 'TrackExceptionEvent':
+        this.emit('trackException', payload);
         break;
-      case "TrackStuckEvent":
-        this.emit("trackStuck", payload);
+      case 'TrackStuckEvent':
+        this.emit('trackStuck', payload);
         break;
-      case "WebSocketClosedEvent":
-        this.emit("webSocketClosed", payload);
+      case 'WebSocketClosedEvent':
+        this.emit('webSocketClosed', payload);
         break;
       default:
         console.log(`Unhandled event type: ${payload.type}`);
@@ -261,7 +238,7 @@ export class Lavalink {
    * @param callback - The function to call when the event occurs
    * @returns The Lavalink instance for chaining
    */
-  on(event: string, callback: Function) {
+  on(event: string, callback: (...args: any[]) => void) {
     this.eventListeners[event] = this.eventListeners[event] || [];
     this.eventListeners[event].push(callback);
     return this;
@@ -298,7 +275,7 @@ export class Lavalink {
    */
   async configureResuming(timeout: number = 60) {
     if (!this.sessionId) {
-      throw new Error("Cannot configure resuming without an active session");
+      throw new Error('Cannot configure resuming without an active session');
     }
 
     try {
@@ -309,7 +286,7 @@ export class Lavalink {
       this.log(`Configured session resuming with timeout: ${timeout}s`);
       return true;
     } catch (error) {
-      this.log("Failed to configure session resuming:", LogLevel.NORMAL, error);
+      this.log('Failed to configure session resuming:', LogLevel.NORMAL, error);
       return false;
     }
   }
@@ -322,11 +299,11 @@ export class Lavalink {
    * @throws Error if the search fails
    * @see {@link SearchType} for available search providers
    */
-  async tracks(query: string, searchType: SearchType = "spsearch") {
+  async tracks(query: string, searchType: SearchType = 'spsearch') {
     try {
       // Handle direct URLs for Spotify, etc.
-      if (query.startsWith("http")) {
-        if (query.includes("spotify.com")) {
+      if (query.startsWith('http')) {
+        if (query.includes('spotify.com')) {
           return this.loadTracks(query);
         }
       }
@@ -381,15 +358,9 @@ export class Lavalink {
    * @throws Error if the session isn't established or if playback fails
    * @see {@link PlayOptions} for available playback options
    */
-  async play(
-    guildId: string,
-    track: TracksResult | Datum | string,
-    options: PlayOptions = {}
-  ) {
+  async play(guildId: string, track: TracksResult | Datum | string, options: PlayOptions = {}) {
     if (!this.sessionId) {
-      throw new Error(
-        "Lavalink play called before WebSocket connection was initiated."
-      );
+      throw new Error('Lavalink play called before WebSocket connection was initiated.');
     }
 
     let trackData: {
@@ -397,21 +368,16 @@ export class Lavalink {
       identifier?: string;
     } | null = null;
 
-    if (typeof track === "string") {
+    if (typeof track === 'string') {
       // if it's a long weird string, probs base64 encoded track
       // if it's short, probs just an ID
-      trackData =
-        track.length > 15 ? { encoded: track } : { identifier: track };
-      this.log(`Playing track from ${track.length > 15 ? "encoded string" : "identifier"}`);
-    } else if (
-      "data" in track &&
-      Array.isArray(track.data) &&
-      track.data.length > 0
-    ) {
+      trackData = track.length > 15 ? { encoded: track } : { identifier: track };
+      this.log(`Playing track from ${track.length > 15 ? 'encoded string' : 'identifier'}`);
+    } else if ('data' in track && Array.isArray(track.data) && track.data.length > 0) {
       // came from a search, grab the first result
       trackData = { encoded: track.data[0]?.encoded };
       this.log(`Playing first track from search results`);
-    } else if ("info" in track && "encoded" in track) {
+    } else if ('info' in track && 'encoded' in track) {
       // already a track obj, just use it
       trackData = { encoded: track.encoded };
       const trackInfo = track.info;
@@ -435,10 +401,7 @@ export class Lavalink {
 
       this.log(`Sending play request for guild ${guildId}`, LogLevel.DEBUG, playerUpdate);
 
-      await this.rest.patch(
-        `/sessions/${this.sessionId}/players/${guildId}`,
-        playerUpdate
-      );
+      await this.rest.patch(`/sessions/${this.sessionId}/players/${guildId}`, playerUpdate);
 
       this.log(`Successfully started playback in guild ${guildId}`);
       return true;
@@ -457,9 +420,7 @@ export class Lavalink {
    */
   async stop(guildId: string) {
     if (!this.sessionId) {
-      throw new Error(
-        "Lavalink stop called before WebSocket connection was initiated."
-      );
+      throw new Error('Lavalink stop called before WebSocket connection was initiated.');
     }
 
     try {
@@ -472,7 +433,7 @@ export class Lavalink {
       this.log(`Successfully stopped playback in guild ${guildId}`);
       return true;
     } catch (error) {
-      this.log("Error stopping playback:", LogLevel.NORMAL, error);
+      this.log('Error stopping playback:', LogLevel.NORMAL, error);
       return false;
     }
   }
@@ -486,26 +447,20 @@ export class Lavalink {
    */
   async pause(guildId: string, paused: boolean = true) {
     if (!this.sessionId) {
-      throw new Error(
-        "Lavalink pause called before WebSocket connection was initiated."
-      );
+      throw new Error('Lavalink pause called before WebSocket connection was initiated.');
     }
 
     try {
-      this.log(`${paused ? "Pausing" : "Resuming"} playback in guild ${guildId}`);
+      this.log(`${paused ? 'Pausing' : 'Resuming'} playback in guild ${guildId}`);
 
       await this.rest.patch(`/sessions/${this.sessionId}/players/${guildId}`, {
         paused,
       });
 
-      this.log(`Successfully ${paused ? "paused" : "resumed"} playback in guild ${guildId}`);
+      this.log(`Successfully ${paused ? 'paused' : 'resumed'} playback in guild ${guildId}`);
       return true;
     } catch (error) {
-      this.log(
-        `Error ${paused ? "pausing" : "resuming"} playback:`,
-        LogLevel.NORMAL,
-        error
-      );
+      this.log(`Error ${paused ? 'pausing' : 'resuming'} playback:`, LogLevel.NORMAL, error);
       return false;
     }
   }
@@ -519,9 +474,7 @@ export class Lavalink {
    */
   async seek(guildId: string, position: number) {
     if (!this.sessionId) {
-      throw new Error(
-        "Lavalink seek called before WebSocket connection was initiated."
-      );
+      throw new Error('Lavalink seek called before WebSocket connection was initiated.');
     }
 
     try {
@@ -534,7 +487,7 @@ export class Lavalink {
       this.log(`Successfully seeked to position ${position}ms in guild ${guildId}`);
       return true;
     } catch (error) {
-      this.log("Error seeking:", LogLevel.NORMAL, error);
+      this.log('Error seeking:', LogLevel.NORMAL, error);
       return false;
     }
   }
@@ -548,9 +501,7 @@ export class Lavalink {
    */
   async setVolume(guildId: string, volume: number) {
     if (!this.sessionId) {
-      throw new Error(
-        "Lavalink setVolume called before WebSocket connection was initiated."
-      );
+      throw new Error('Lavalink setVolume called before WebSocket connection was initiated.');
     }
 
     // Ensure volume is within valid range
@@ -566,7 +517,7 @@ export class Lavalink {
       this.log(`Successfully set volume to ${volume} in guild ${guildId}`);
       return true;
     } catch (error) {
-      this.log("Error setting volume:", LogLevel.NORMAL, error);
+      this.log('Error setting volume:', LogLevel.NORMAL, error);
       return false;
     }
   }
@@ -579,19 +530,19 @@ export class Lavalink {
    */
   async getPlayer(guildId: string) {
     if (!this.sessionId) {
-      throw new Error(
-        "Lavalink getPlayer called before WebSocket connection was initiated."
-      );
+      throw new Error('Lavalink getPlayer called before WebSocket connection was initiated.');
     }
 
     try {
       this.log(`Getting player information for guild ${guildId}`);
 
-      const { data } = await this.rest.get(
-        `/sessions/${this.sessionId}/players/${guildId}`
-      );
+      const { data } = await this.rest.get(`/sessions/${this.sessionId}/players/${guildId}`);
 
-      this.log(`Successfully retrieved player information for guild ${guildId}`, LogLevel.DEBUG, data);
+      this.log(
+        `Successfully retrieved player information for guild ${guildId}`,
+        LogLevel.DEBUG,
+        data
+      );
       return data;
     } catch (error) {
       const axiosError = error as AxiosError;
@@ -599,7 +550,7 @@ export class Lavalink {
         this.log(`No player exists for guild ${guildId}`);
         return null; // Player doesn't exist
       }
-      this.log("Error getting player:", LogLevel.NORMAL, error);
+      this.log('Error getting player:', LogLevel.NORMAL, error);
       throw error;
     }
   }
@@ -609,14 +560,11 @@ export class Lavalink {
    * @private
    */
   private processPendingVoiceUpdates() {
-    this.log("Processing pending voice updates...");
+    this.log('Processing pending voice updates...');
 
     // Process all guilds with pending voice updates
     Object.keys(this.voiceUpdates).forEach((guildId) => {
-      if (
-        this.voiceUpdates[guildId]?.sessionId &&
-        this.voiceUpdates[guildId]?.event
-      ) {
+      if (this.voiceUpdates[guildId]?.sessionId && this.voiceUpdates[guildId]?.event) {
         this.log(`Processing pending voice update for guild ${guildId}`);
         this.sendVoiceUpdate(guildId).catch((err) => {
           this.log(
@@ -658,23 +606,14 @@ export class Lavalink {
         );
 
         // Update the player with voice information
-        await this.rest.patch(
-          `/sessions/${this.sessionId}/players/${guildId}`,
-          voiceData
-        );
+        await this.rest.patch(`/sessions/${this.sessionId}/players/${guildId}`, voiceData);
 
         this.log(`Voice update for guild ${guildId} sent successfully`);
       } catch (error) {
-        this.log(
-          `Error sending voice update for guild ${guildId}:`,
-          LogLevel.NORMAL,
-          error
-        );
+        this.log(`Error sending voice update for guild ${guildId}:`, LogLevel.NORMAL, error);
       }
     } else {
-      this.log(
-        `Incomplete voice data for guild ${guildId}, waiting for more updates`
-      );
+      this.log(`Incomplete voice data for guild ${guildId}, waiting for more updates`);
     }
   }
 }

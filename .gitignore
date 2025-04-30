@@ -33,3 +33,10 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 # Finder (MacOS) folder config
 .DS_Store
 
+application.yml
+bun.lock
+Lavalink.jar
+yarn.lock
+example/search.ts
+plugins/lavasrc-plugin-4.6.0.jar
+plugins/youtube-plugin-0e5cfca4e88c32db430ce76e6866b13035c85d22.jar
