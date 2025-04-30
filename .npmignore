@@ -32,3 +32,8 @@ coverage/
 .DS_Store
 Thumbs.db
 application.yml
+
+
+docs
+example
+test
