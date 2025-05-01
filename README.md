@@ -1,5 +1,5 @@
 # discord-lavalink
-![0fa5c51e-ffff-4be5-a100-5a35a3c1f3f0](https://github.com/user-attachments/assets/08a0c9bb-3b4e-4efc-bda6-7b1eca2b0189)
+![ChatGPT Image May 2, 2025, 02_12_12 AM](https://github.com/user-attachments/assets/d7caa00e-6476-495f-9a3e-621e8795cd54)
 
 <div align="center">
   <br>
