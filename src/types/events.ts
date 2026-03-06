@@ -113,5 +113,3 @@ export type LavalinkEvent =
   | TrackExceptionEvent
   | TrackStuckEvent
   | WebSocketClosedEvent;
-
-
