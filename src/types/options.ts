@@ -1,4 +1,4 @@
-import { Client } from "discord.js";
+import { Client } from 'discord.js';
 
 /**
  * Log level for controlling the verbosity of logging
@@ -7,12 +7,12 @@ export enum LogLevel {
   /**
    * Only log errors and critical information
    */
-  NORMAL = "normal",
+  NORMAL = 'normal',
 
   /**
    * Log everything including debug information
    */
-  DEBUG = "debug"
+  DEBUG = 'debug',
 }
 
 /**
