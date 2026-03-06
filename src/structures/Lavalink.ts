@@ -4,6 +4,14 @@ import { WebSocket } from 'ws';
 import { LavalinkOptions, PlayOptions, SearchType, TracksResult, Datum, LogLevel } from '../types';
 import { buildLavalinkUrl, clampVolume, safeStringify } from '../utils/helpers';
 
+interface VoiceState {
+  sessionId?: string;
+  event?: {
+    token: string;
+    endpoint: string;
+  };
+}
+
 export class Lavalink {
   private readonly client: Client;
   private readonly baseUrl: string;
@@ -11,30 +19,27 @@ export class Lavalink {
   private lavalink?: WebSocket;
   private readonly rest: AxiosInstance;
   private sessionId?: string;
-  // Stats data received from Lavalink
   private stats?: Record<string, any>;
   private readonly reconnectInterval: number;
   private reconnectAttempts = 0;
   private readonly maxReconnectAttempts: number;
-  private readonly voiceUpdates: Record<string, any> = {};
+  private readonly voiceUpdates: Record<string, VoiceState> = {};
   private readonly eventListeners: Record<string, Array<(...args: any[]) => void>> = {};
   private readonly clientName: string;
   private readonly customHeaders: Record<string, string>;
   private readonly logLevel: LogLevel;
+  private intentionalDisconnect = false;
 
   constructor(options: LavalinkOptions) {
     this.client = options.client;
     this.baseUrl = options.baseUrl;
     this.password = options.password;
     this.logLevel = options.logLevel ?? LogLevel.NORMAL;
-
-    // Set custom options or defaults
     this.reconnectInterval = options.customOptions?.reconnectInterval ?? 5000;
     this.maxReconnectAttempts = options.customOptions?.maxReconnectAttempts ?? 5;
     this.clientName = options.customOptions?.clientName ?? 'discord-lavalink/1.0.0';
     this.customHeaders = options.customOptions?.headers ?? {};
 
-    // Create REST client
     this.rest = axios.create({
       baseURL: this.baseUrl + '/v4',
       headers: {
@@ -42,17 +47,9 @@ export class Lavalink {
       },
     });
 
-    // Set up voice state handling
     this.setupVoiceStateHandling();
   }
 
-  /**
-   * Logs a message based on the current log level
-   * @param message - The message to log
-   * @param level - The log level of this message
-   * @param data - Optional data to include with the log
-   * @private
-   */
   private log(message: string, level: LogLevel = LogLevel.DEBUG, ...data: any[]): void {
     if (level === LogLevel.NORMAL && this.logLevel === LogLevel.NORMAL) {
       console.error(message, ...data);
@@ -65,22 +62,21 @@ export class Lavalink {
     }
   }
 
-  /**
-   * Sets up event listeners for Discord voice state and server updates
-   * @private
-   */
   private setupVoiceStateHandling() {
     this.client.ws.on(GatewayDispatchEvents.VoiceStateUpdate, (data) => {
       const guildId = data.guild_id;
       this.log(`Received VOICE_STATE_UPDATE for guild ${guildId}`);
 
-      this.voiceUpdates[guildId] ??= {};
+      if (data.user_id !== this.client.user?.id) return;
 
-      if (data.user_id === this.client.user?.id) {
-        this.voiceUpdates[guildId].sessionId = data.session_id;
+      if (data.channel_id === null) {
+        delete this.voiceUpdates[guildId];
+        return;
       }
 
-      // Only attempt to send voice update if we have a session
+      this.voiceUpdates[guildId] ??= {};
+      this.voiceUpdates[guildId].sessionId = data.session_id;
+
       if (this.sessionId) {
         this.sendVoiceUpdate(guildId).catch((err) => {
           this.log(`Error handling voice state update for guild ${guildId}:`, LogLevel.NORMAL, err);
@@ -97,7 +93,6 @@ export class Lavalink {
       this.voiceUpdates[guildId] ??= {};
       this.voiceUpdates[guildId].event = data;
 
-      // Only attempt to send voice update if we have a session
       if (this.sessionId) {
         this.sendVoiceUpdate(guildId).catch((err) => {
           this.log(
@@ -112,22 +107,24 @@ export class Lavalink {
     });
   }
 
-  /**
-   * Establishes a connection to the Lavalink server
-   * @param resumeSessionId - Optional session ID to resume a previous connection
-   */
   connect(resumeSessionId?: string) {
+    if (!this.client.application?.id) {
+      throw new Error(
+        'Discord client must be ready (client.application must be set) before connecting to Lavalink.'
+      );
+    }
+
+    this.intentionalDisconnect = false;
     const url = buildLavalinkUrl(this.baseUrl);
     this.log(`Connecting to Lavalink at ${url.toString()}`);
 
     const headers: Record<string, string> = {
       Authorization: this.password,
-      'User-Id': this.client.application?.id ?? '',
-      'Client-Name': this.clientName, // gotta follow the rules or it gets mad
+      'User-Id': this.client.application.id,
+      'Client-Name': this.clientName,
       ...this.customHeaders,
     };
 
-    // Add session ID for resuming if provided
     if (resumeSessionId) {
       headers['Session-Id'] = resumeSessionId;
     }
@@ -136,7 +133,7 @@ export class Lavalink {
 
     this.lavalink.on('open', () => {
       this.log('Lavalink WebSocket connection established');
-      this.reconnectAttempts = 0; // we good now, reset the fail counter
+      this.reconnectAttempts = 0;
     });
 
     this.lavalink.on('error', (error) => {
@@ -145,12 +142,13 @@ export class Lavalink {
 
     this.lavalink.on('close', (code, reason) => {
       this.log(`Lavalink WebSocket closed with code ${code}: ${reason}`);
-      this.handleReconnect();
+      if (!this.intentionalDisconnect) {
+        this.handleReconnect();
+      }
     });
 
     this.lavalink.on('message', (data) => {
       try {
-        // Convert WebSocket data to string safely
         const messageText = safeStringify(data);
         const payload = JSON.parse(messageText);
         this.log('Received Lavalink message:', LogLevel.DEBUG, payload.op);
@@ -160,8 +158,6 @@ export class Lavalink {
           this.log(`Lavalink session established with ID: ${this.sessionId}`);
           this.log(`Session resumed: ${payload.resumed}`);
           this.emit('ready', payload);
-
-          // Process any pending voice updates now that we have a session
           this.processPendingVoiceUpdates();
         } else if (payload.op === 'stats') {
           const statsData = { ...payload };
@@ -183,10 +179,6 @@ export class Lavalink {
     });
   }
 
-  /**
-   * Handles reconnection attempts when the WebSocket connection is closed
-   * @private
-   */
   private handleReconnect() {
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
       this.log('Max reconnect attempts reached, giving up', LogLevel.NORMAL);
@@ -194,22 +186,17 @@ export class Lavalink {
     }
 
     this.reconnectAttempts++;
-    const delay = this.reconnectInterval * this.reconnectAttempts;
+    const delay = this.reconnectInterval * Math.pow(2, this.reconnectAttempts - 1);
     this.log(
       `Attempting to reconnect in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`
     );
 
     setTimeout(() => {
       this.log('Reconnecting to Lavalink...');
-      this.connect(this.sessionId); // try to pick up where we left off
+      this.connect(this.sessionId);
     }, delay);
   }
 
-  /**
-   * Processes events received from the Lavalink server
-   * @param payload - The event payload received from Lavalink
-   * @private
-   */
   private handleEvent(payload: any) {
     switch (payload.type) {
       case 'TrackStartEvent':
@@ -228,28 +215,23 @@ export class Lavalink {
         this.emit('webSocketClosed', payload);
         break;
       default:
-        console.log(`Unhandled event type: ${payload.type}`);
+        this.log(`Unhandled event type: ${payload.type}`, LogLevel.DEBUG);
     }
   }
 
-  /**
-   * Registers an event listener for Lavalink events
-   * @param event - The event name to listen for
-   * @param callback - The function to call when the event occurs
-   * @returns The Lavalink instance for chaining
-   */
   on(event: string, callback: (...args: any[]) => void) {
     this.eventListeners[event] = this.eventListeners[event] || [];
     this.eventListeners[event].push(callback);
     return this;
   }
 
-  /**
-   * Triggers all registered callbacks for a specific event
-   * @param event - The event name to emit
-   * @param data - The data to pass to the event listeners
-   * @private
-   */
+  off(event: string, callback: (...args: any[]) => void) {
+    if (this.eventListeners[event]) {
+      this.eventListeners[event] = this.eventListeners[event].filter((cb) => cb !== callback);
+    }
+    return this;
+  }
+
   private emit(event: string, data: any) {
     const callbacks = this.eventListeners[event];
     if (callbacks) {
@@ -257,22 +239,14 @@ export class Lavalink {
     }
   }
 
-  /**
-   * Closes the connection to the Lavalink server
-   */
   disconnect() {
+    this.intentionalDisconnect = true;
     if (this.lavalink) {
       this.lavalink.close();
       this.lavalink = undefined;
     }
   }
 
-  /**
-   * Configures session resuming capability with the Lavalink server
-   * @param timeout - The number of seconds Lavalink should wait before cleaning up a disconnected session
-   * @returns A promise that resolves to true if successful, false otherwise
-   * @throws Error if called before a session is established
-   */
   async configureResuming(timeout: number = 60) {
     if (!this.sessionId) {
       throw new Error('Cannot configure resuming without an active session');
@@ -291,33 +265,20 @@ export class Lavalink {
     }
   }
 
-  /**
-   * Searches for tracks using the specified search provider
-   * @param query - The search query or URL to find tracks
-   * @param searchType - The search provider to use (defaults to Spotify search)
-   * @returns A promise that resolves to the search results
-   * @throws Error if the search fails
-   * @see {@link SearchType} for available search providers
-   */
   async tracks(query: string, searchType: SearchType = 'spsearch') {
     try {
-      // Handle direct URLs for Spotify, etc.
-      if (query.startsWith('http')) {
-        if (query.includes('spotify.com')) {
-          return this.loadTracks(query);
-        }
+      if (query.startsWith('http://') || query.startsWith('https://')) {
+        return this.loadTracks(query);
       }
 
       this.log(`Searching for tracks with query: ${query} using ${searchType}`);
 
-      // Regular search
       const { data } = await this.rest.get<TracksResult>(`/loadtracks`, {
         params: {
           identifier: `${searchType}:${query}`,
         },
       });
 
-      this.log(`Found ${data.data.length} tracks for query: ${query}`, LogLevel.DEBUG);
       return data;
     } catch (error) {
       const axiosError = error as AxiosError;
@@ -326,12 +287,6 @@ export class Lavalink {
     }
   }
 
-  /**
-   * Loads tracks directly from a URL or identifier without search
-   * @param identifier - The URL or identifier to load (e.g., Spotify URL, YouTube URL)
-   * @returns A promise that resolves to the track results
-   * @throws Error if loading fails
-   */
   async loadTracks(identifier: string): Promise<TracksResult> {
     try {
       this.log(`Loading tracks from identifier: ${identifier}`);
@@ -340,7 +295,6 @@ export class Lavalink {
         params: { identifier },
       });
 
-      this.log(`Loaded ${data.data.length} tracks from identifier`, LogLevel.DEBUG);
       return data;
     } catch (error) {
       const axiosError = error as AxiosError;
@@ -349,15 +303,6 @@ export class Lavalink {
     }
   }
 
-  /**
-   * Plays a track in the specified guild
-   * @param guildId - The Discord guild ID where the track should be played
-   * @param track - The track to play (can be a track object, search result, or encoded track string)
-   * @param options - Optional playback settings like volume, position, etc.
-   * @returns A promise that resolves to true if successful
-   * @throws Error if the session isn't established or if playback fails
-   * @see {@link PlayOptions} for available playback options
-   */
   async play(guildId: string, track: TracksResult | Datum | string, options: PlayOptions = {}) {
     if (!this.sessionId) {
       throw new Error('Lavalink play called before WebSocket connection was initiated.');
@@ -369,19 +314,17 @@ export class Lavalink {
     } | null = null;
 
     if (typeof track === 'string') {
-      // if it's a long weird string, probs base64 encoded track
-      // if it's short, probs just an ID
       trackData = track.length > 15 ? { encoded: track } : { identifier: track };
-      this.log(`Playing track from ${track.length > 15 ? 'encoded string' : 'identifier'}`);
-    } else if ('data' in track && Array.isArray(track.data) && track.data.length > 0) {
-      // came from a search, grab the first result
-      trackData = { encoded: track.data[0]?.encoded };
-      this.log(`Playing first track from search results`);
+    } else if ('loadType' in track) {
+      if (track.loadType === 'track') {
+        trackData = { encoded: track.data.encoded };
+      } else if (track.loadType === 'search' && track.data.length > 0) {
+        trackData = { encoded: track.data[0]?.encoded };
+      } else if (track.loadType === 'playlist' && track.data.tracks.length > 0) {
+        trackData = { encoded: track.data.tracks[0]?.encoded };
+      }
     } else if ('info' in track && 'encoded' in track) {
-      // already a track obj, just use it
       trackData = { encoded: track.encoded };
-      const trackInfo = track.info;
-      this.log(`Playing track: ${trackInfo.title} by ${trackInfo.author}`);
     }
 
     if (!trackData) {
@@ -391,17 +334,29 @@ export class Lavalink {
     }
 
     try {
-      const playerUpdate = {
+      const playerUpdate: Record<string, any> = {
         track: trackData,
         volume: options.volume ?? 100,
         paused: options.paused ?? false,
-        position: options.position,
-        filters: options.filters,
       };
+
+      if (options.position !== undefined) {
+        playerUpdate.position = options.position;
+      }
+
+      if (options.filters !== undefined) {
+        playerUpdate.filters = options.filters;
+      }
 
       this.log(`Sending play request for guild ${guildId}`, LogLevel.DEBUG, playerUpdate);
 
-      await this.rest.patch(`/sessions/${this.sessionId}/players/${guildId}`, playerUpdate);
+      if (options.noReplace) {
+        await this.rest.patch(`/sessions/${this.sessionId}/players/${guildId}`, playerUpdate, {
+          params: { noReplace: true },
+        });
+      } else {
+        await this.rest.patch(`/sessions/${this.sessionId}/players/${guildId}`, playerUpdate);
+      }
 
       this.log(`Successfully started playback in guild ${guildId}`);
       return true;
@@ -412,12 +367,6 @@ export class Lavalink {
     }
   }
 
-  /**
-   * Stops playback in the specified guild
-   * @param guildId - The Discord guild ID where playback should be stopped
-   * @returns A promise that resolves to true if successful, false otherwise
-   * @throws Error if the session isn't established
-   */
   async stop(guildId: string) {
     if (!this.sessionId) {
       throw new Error('Lavalink stop called before WebSocket connection was initiated.');
@@ -427,7 +376,7 @@ export class Lavalink {
       this.log(`Stopping playback in guild ${guildId}`);
 
       await this.rest.patch(`/sessions/${this.sessionId}/players/${guildId}`, {
-        track: null,
+        track: { encoded: null },
       });
 
       this.log(`Successfully stopped playback in guild ${guildId}`);
@@ -438,13 +387,6 @@ export class Lavalink {
     }
   }
 
-  /**
-   * Pauses or resumes playback in the specified guild
-   * @param guildId - The Discord guild ID where playback should be paused/resumed
-   * @param paused - Whether to pause (true) or resume (false) playback
-   * @returns A promise that resolves to true if successful, false otherwise
-   * @throws Error if the session isn't established
-   */
   async pause(guildId: string, paused: boolean = true) {
     if (!this.sessionId) {
       throw new Error('Lavalink pause called before WebSocket connection was initiated.');
@@ -465,13 +407,6 @@ export class Lavalink {
     }
   }
 
-  /**
-   * Seeks to a specific position in the currently playing track
-   * @param guildId - The Discord guild ID where the track is playing
-   * @param position - The position to seek to in milliseconds
-   * @returns A promise that resolves to true if successful, false otherwise
-   * @throws Error if the session isn't established
-   */
   async seek(guildId: string, position: number) {
     if (!this.sessionId) {
       throw new Error('Lavalink seek called before WebSocket connection was initiated.');
@@ -492,19 +427,11 @@ export class Lavalink {
     }
   }
 
-  /**
-   * Sets the volume for playback in the specified guild
-   * @param guildId - The Discord guild ID where volume should be adjusted
-   * @param volume - The volume level (0-1000, where 100 is normal volume)
-   * @returns A promise that resolves to true if successful, false otherwise
-   * @throws Error if the session isn't established
-   */
   async setVolume(guildId: string, volume: number) {
     if (!this.sessionId) {
       throw new Error('Lavalink setVolume called before WebSocket connection was initiated.');
     }
 
-    // Ensure volume is within valid range
     volume = clampVolume(volume);
 
     try {
@@ -522,12 +449,6 @@ export class Lavalink {
     }
   }
 
-  /**
-   * Retrieves information about the player in the specified guild
-   * @param guildId - The Discord guild ID to get player information for
-   * @returns A promise that resolves to the player data, or null if no player exists
-   * @throws Error if the session isn't established or if retrieval fails
-   */
   async getPlayer(guildId: string) {
     if (!this.sessionId) {
       throw new Error('Lavalink getPlayer called before WebSocket connection was initiated.');
@@ -548,21 +469,16 @@ export class Lavalink {
       const axiosError = error as AxiosError;
       if (axiosError.response?.status === 404) {
         this.log(`No player exists for guild ${guildId}`);
-        return null; // Player doesn't exist
+        return null;
       }
       this.log('Error getting player:', LogLevel.NORMAL, error);
       throw error;
     }
   }
 
-  /**
-   * Processes any pending voice updates that were received before the session was established
-   * @private
-   */
   private processPendingVoiceUpdates() {
     this.log('Processing pending voice updates...');
 
-    // Process all guilds with pending voice updates
     Object.keys(this.voiceUpdates).forEach((guildId) => {
       if (this.voiceUpdates[guildId]?.sessionId && this.voiceUpdates[guildId]?.event) {
         this.log(`Processing pending voice update for guild ${guildId}`);
@@ -577,12 +493,6 @@ export class Lavalink {
     });
   }
 
-  /**
-   * Sends voice connection information to Lavalink via REST API
-   * Note: In Lavalink v4, voice updates are sent via REST API instead of WebSocket
-   * @param guildId - The Discord guild ID for the voice connection
-   * @private
-   */
   private async sendVoiceUpdate(guildId: string) {
     if (
       this.sessionId &&
@@ -590,11 +500,10 @@ export class Lavalink {
       this.voiceUpdates[guildId]?.event
     ) {
       try {
-        // In Lavalink v4, we need to use the REST API to update voice state
         const voiceData = {
           voice: {
-            token: this.voiceUpdates[guildId].event.token,
-            endpoint: this.voiceUpdates[guildId].event.endpoint,
+            token: this.voiceUpdates[guildId].event!.token,
+            endpoint: this.voiceUpdates[guildId].event!.endpoint,
             sessionId: this.voiceUpdates[guildId].sessionId,
           },
         };
@@ -605,7 +514,6 @@ export class Lavalink {
           JSON.stringify(voiceData)
         );
 
-        // Update the player with voice information
         await this.rest.patch(`/sessions/${this.sessionId}/players/${guildId}`, voiceData);
 
         this.log(`Voice update for guild ${guildId} sent successfully`);
