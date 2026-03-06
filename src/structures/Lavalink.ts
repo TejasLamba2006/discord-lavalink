@@ -6,6 +6,7 @@ import { buildLavalinkUrl, clampVolume, safeStringify } from '../utils/helpers';
 
 interface VoiceState {
   sessionId?: string;
+  channelId?: string;
   event?: {
     token: string;
     endpoint: string;
@@ -76,6 +77,7 @@ export class Lavalink {
 
       this.voiceUpdates[guildId] ??= {};
       this.voiceUpdates[guildId].sessionId = data.session_id;
+      this.voiceUpdates[guildId].channelId = data.channel_id;
 
       if (this.sessionId) {
         this.sendVoiceUpdate(guildId).catch((err) => {
@@ -497,6 +499,7 @@ export class Lavalink {
     if (
       this.sessionId &&
       this.voiceUpdates[guildId]?.sessionId &&
+      this.voiceUpdates[guildId]?.channelId &&
       this.voiceUpdates[guildId]?.event
     ) {
       try {
@@ -505,6 +508,7 @@ export class Lavalink {
             token: this.voiceUpdates[guildId].event!.token,
             endpoint: this.voiceUpdates[guildId].event!.endpoint,
             sessionId: this.voiceUpdates[guildId].sessionId,
+            channelId: this.voiceUpdates[guildId].channelId,
           },
         };
 
