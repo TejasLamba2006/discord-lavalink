@@ -1,5 +1,4 @@
 import axios, { AxiosError, AxiosInstance } from 'axios';
-import { channel } from 'diagnostics_channel';
 import { GatewayDispatchEvents, type Client } from 'discord.js';
 import { WebSocket } from 'ws';
 
@@ -50,17 +49,17 @@ export class Lavalink {
 
     client.ws.on(GatewayDispatchEvents.VoiceStateUpdate, (data) => {
       const guildId = data.guild_id;
-      if (!guildId) return;
       console.log(`Received VOICE_STATE_UPDATE for guild ${guildId}`);
 
       this.voiceUpdates[guildId] ??= {};
 
       if (data.user_id === this.client.user?.id) {
         this.voiceUpdates[guildId].sessionId = data.session_id;
+        this.voiceUpdates[guildId].channelId = data.channel_id;
       }
 
       // Only attempt to send voice update if we have a session
-      if (this.sessionId && data.channel_id) {
+      if (this.sessionId) {
         this.sendVoiceUpdate(guildId).catch((err) => {
           console.error(`Error handling voice state update for guild ${guildId}:`, err);
         });
@@ -494,6 +493,7 @@ export class Lavalink {
     if (
       this.sessionId &&
       this.voiceUpdates[guildId]?.sessionId &&
+      this.voiceUpdates[guildId]?.channelId &&
       this.voiceUpdates[guildId]?.event
     ) {
       try {
@@ -503,7 +503,6 @@ export class Lavalink {
             token: this.voiceUpdates[guildId].event.token,
             endpoint: this.voiceUpdates[guildId].event.endpoint,
             sessionId: this.voiceUpdates[guildId].sessionId,
-            channelId: this.voiceUpdates[guildId].event.channel_id,
           },
         };
 
