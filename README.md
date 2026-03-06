@@ -14,29 +14,19 @@
   </p>
 </div>
 
-## Stats
-![image](https://github.com/user-attachments/assets/ae866059-679f-42fa-8062-835da319e470)
+A TypeScript wrapper for [Lavalink v4](https://github.com/lavalink-devs/Lavalink) that works with Discord.js v14. Handles the WebSocket connection, REST calls, voice state forwarding, and auto-reconnect — so you can focus on building your bot instead of re-implementing all that every time.
 
-Took me about 2 hours to code form scratch and publish  
+Built this in about 2 hours from scratch. It covers what most music bots actually need.
 
-A powerful and easy-to-use TypeScript wrapper for [Lavalink](https://github.com/lavalink-devs/Lavalink) with Discord.js integration.
+## What it does
 
-## Features
-
-- 🚀 **Simple & Intuitive API** - Easy to use with minimal setup
-- 🔌 **Full Lavalink v4 Support** - Compatible with the latest Lavalink features
-- 🎵 **Advanced Audio Playback** - Control volume, filters, and more
-- 🔍 **Multiple Search Providers** - YouTube, Spotify, SoundCloud, and more
-- 📊 **Detailed Player Information** - Track position, state, and events
-- 🔄 **Session Resuming** - Seamless playback across reconnections
-- 📝 **TypeScript Support** - Full type definitions for a better development experience
-- 🔧 **Customizable** - Configure to fit your specific needs
-
-## Getting Started
-
-- [Quick Start Guide](README.md) - Learn the basics of using discord-lavalink
-- [Setting Up Lavalink Server](lavalink-setup.md) - How to set up your Lavalink server
-- [Audio Filters Guide](audio-filters.md) - Learn how to make your music sound awesome
+- Connects to Lavalink v4 over WebSocket and keeps the connection alive with exponential backoff reconnect
+- Searches across YouTube, YouTube Music, SoundCloud, Spotify, Deezer, Apple Music, and Yandex Music
+- Full playback control: play, stop, pause, seek, volume
+- Forwards voice state updates from Discord to Lavalink automatically
+- Session resuming via the Lavalink v4 sessions API
+- All audio filters Lavalink exposes: equalizer, karaoke, timescale, tremolo, vibrato, rotation, distortion, channelMix, lowPass
+- Full TypeScript types for everything
 
 ## Installation
 
@@ -44,57 +34,42 @@ A powerful and easy-to-use TypeScript wrapper for [Lavalink](https://github.com/
 npm install discord-lavalink
 ```
 
-or with Yarn:
-
-```bash
-yarn add discord-lavalink
-```
-
 ## Prerequisites
 
-Before using this library, you need:
+You need a running [Lavalink v4 server](https://github.com/lavalink-devs/Lavalink). If you don't have one yet, see the [setup guide](docs/lavalink-setup.md).
 
-1. A running [Lavalink server](https://github.com/lavalink-devs/Lavalink) (v4.x)
-2. [discord.js](https://discord.js.org/) (v14.x)
+You also need discord.js v14 and @discordjs/voice.
 
-## Quick Start
+## Quick start
 
 ```typescript
 import { Client, GatewayIntentBits } from 'discord.js';
 import { joinVoiceChannel } from '@discordjs/voice';
 import { Lavalink, LogLevel } from 'discord-lavalink';
 
-// Create Discord client with required intents
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates],
 });
 
-// Initialize Lavalink client
 const lavalink = new Lavalink({
   client,
-  baseUrl: 'http://localhost:2333',  // Your Lavalink server URL
-  password: 'youshallnotpass',       // Your Lavalink server password
-  logLevel: LogLevel.NORMAL,         // NORMAL for errors only, DEBUG for verbose logging
+  baseUrl: 'http://localhost:2333',
+  password: 'youshallnotpass',
+  logLevel: LogLevel.NORMAL,
 });
 
-// Set up event listeners for Lavalink
 lavalink.on('ready', (data) => {
-  console.log(`Lavalink session established with ID: ${data.sessionId}`);
+  console.log(`Lavalink ready, session: ${data.sessionId}`);
 });
 
 lavalink.on('trackStart', (data) => {
   console.log(`Now playing: ${data.track.info.title}`);
 });
 
-// Handle Discord client ready event
 client.on('ready', () => {
-  console.log(`Logged in as ${client.user.tag}`);
-
-  // Connect to Lavalink
   lavalink.connect();
 });
 
-// Example command to play music
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isCommand() || interaction.commandName !== 'play') return;
 
@@ -106,7 +81,6 @@ client.on('interactionCreate', async (interaction) => {
     return;
   }
 
-  // Join voice channel
   const member = interaction.member;
   if (!member || !('voice' in member) || !member.voice.channel) {
     await interaction.reply('You need to be in a voice channel!');
@@ -115,324 +89,200 @@ client.on('interactionCreate', async (interaction) => {
 
   await interaction.deferReply();
 
-  // Join the voice channel
   joinVoiceChannel({
     channelId: member.voice.channel.id,
-    guildId: guildId,
+    guildId,
     adapterCreator: interaction.guild.voiceAdapterCreator,
   });
 
-  // Search for the track
   try {
-    const searchResult = await lavalink.tracks(query);
+    const result = await lavalink.tracks(query);
 
-    if (!searchResult.data || searchResult.data.length === 0) {
-      await interaction.editReply('No tracks found!');
+    if (result.loadType === 'empty' || result.loadType === 'error') {
+      await interaction.editReply('Nothing found.');
       return;
     }
 
-    const track = searchResult.data[0];
-    await lavalink.play(guildId, track);
+    await lavalink.play(guildId, result);
+    const title =
+      result.loadType === 'track'
+        ? result.data.info.title
+        : result.loadType === 'search'
+          ? result.data[0].info.title
+          : result.data.info.name;
 
-    await interaction.editReply(`Now playing: ${track.info.title}`);
+    await interaction.editReply(`Now playing: ${title}`);
   } catch (error) {
     console.error(error);
-    await interaction.editReply('An error occurred while trying to play the track.');
+    await interaction.editReply('Something went wrong.');
   }
 });
 
-// Login to Discord
 client.login('YOUR_DISCORD_BOT_TOKEN');
 ```
 
-## Setting Up Lavalink Server
-
-This library requires a running Lavalink server. If you don't have one set up yet, follow these steps:
-
-1. Visit the [official Lavalink documentation](https://lavalink.dev/) for detailed setup instructions
-2. Download the latest Lavalink.jar from the [GitHub releases](https://github.com/lavalink-devs/Lavalink/releases)
-3. Create an `application.yml` file (example below)
-4. Run the server with `java -jar Lavalink.jar`
-
-Example `application.yml`:
-
-```yaml
-server:
-  port: 2333
-  address: 0.0.0.0
-lavalink:
-  server:
-    password: "youshallnotpass"
-    sources:
-      youtube: true
-      bandcamp: true
-      soundcloud: true
-      twitch: true
-      vimeo: true
-      http: true
-      local: false
-    filters:
-      volume: true
-      equalizer: true
-      karaoke: true
-      timescale: true
-      tremolo: true
-      vibrato: true
-      distortion: true
-      rotation: true
-      channelMix: true
-      lowPass: true
-    bufferDurationMs: 400
-    frameBufferDurationMs: 5000
-    youtubePlaylistLoadLimit: 6
-    playerUpdateInterval: 5
-    youtubeSearchEnabled: true
-    soundcloudSearchEnabled: true
-    gc-warnings: true
-
-plugins:
-  lavasrc:
-    sources:
-      spotify: true
-      deezer: true
-      yandexmusic: false
-      applemusic: false
-    spotify:
-      clientId: "your-spotify-client-id"
-      clientSecret: "your-spotify-client-secret"
-      countryCode: "US"
-    deezer:
-      masterKey: "your-deezer-master-key"
-```
-
-## API Documentation
-
-### Initialization
+## Configuration
 
 ```typescript
 const lavalink = new Lavalink({
-  client: discordClient,
+  client,
   baseUrl: 'http://localhost:2333',
   password: 'youshallnotpass',
-  logLevel: LogLevel.NORMAL, // Optional: NORMAL or DEBUG
-  customOptions: {           // Optional
+  logLevel: LogLevel.NORMAL,
+  customOptions: {
     maxReconnectAttempts: 5,
     reconnectInterval: 5000,
     headers: {},
-    clientName: 'discord-lavalink/1.0.0'
-  }
+    clientName: 'discord-lavalink/1.0.0',
+  },
 });
 ```
 
-### Connection Management
+`LogLevel.NORMAL` only logs errors. `LogLevel.DEBUG` logs everything — useful when something isn't working and you need to see what's happening.
+
+## API
+
+### Connection
 
 ```typescript
-// Connect to Lavalink
 lavalink.connect();
+lavalink.connect('previousSessionId');
 
-// Disconnect from Lavalink
 lavalink.disconnect();
 
-// Configure session resuming
-await lavalink.configureResuming(60); // Timeout in seconds
+await lavalink.configureResuming(60);
 ```
 
-### Track Loading
+Pass the previous session ID to `connect()` to resume a session. Call `configureResuming()` after connecting to tell Lavalink to keep session state alive for the given number of seconds.
+
+### Track loading
 
 ```typescript
-// Search for tracks
-const results = await lavalink.tracks('never gonna give you up', 'ytsearch');
-
-// Load tracks from URL
-const playlist = await lavalink.loadTracks('https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M');
+const result = await lavalink.tracks('never gonna give you up', 'ytsearch');
+const result = await lavalink.loadTracks('https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M');
 ```
 
-### Playback Control
+`tracks()` prepends the search type prefix automatically. If you pass a URL, it loads directly without a prefix. `loadTracks()` always loads from an identifier or URL as-is.
+
+### Playback
 
 ```typescript
-// Play a track
+await lavalink.play(guildId, track);
 await lavalink.play(guildId, track, {
-  volume: 80,        // 80% volume
-  paused: false,     // Start playing immediately
-  position: 30000,   // Start 30 seconds in
-  filters: {         // Optional audio filters
+  volume: 80,
+  paused: false,
+  position: 30000,
+  noReplace: true,
+  filters: {
     volume: 1.0,
-    equalizer: [
-      { band: 0, gain: 0.2 },
-      { band: 1, gain: 0.3 },
-    ]
-  }
+    equalizer: [{ band: 0, gain: 0.2 }],
+  },
 });
 
-// Stop playback
 await lavalink.stop(guildId);
 
-// Pause/resume playback
-await lavalink.pause(guildId, true);  // Pause
-await lavalink.pause(guildId, false); // Resume
+await lavalink.pause(guildId, true);
+await lavalink.pause(guildId, false);
 
-// Seek to position
-await lavalink.seek(guildId, 60000); // Seek to 1 minute
+await lavalink.seek(guildId, 60000);
 
-// Set volume
-await lavalink.setVolume(guildId, 50); // 50% volume
+await lavalink.setVolume(guildId, 50);
 
-// Get player information
 const player = await lavalink.getPlayer(guildId);
 ```
 
-### Event Handling
+`play()` accepts a `Datum` object, a `TracksResult` (it picks the right track from it), or a raw encoded/identifier string. When `noReplace` is true, Lavalink won't replace a currently playing track.
+
+### Events
 
 ```typescript
-// Listen for events
-lavalink.on('ready', (data) => {
-  console.log(`Connected to Lavalink, session ID: ${data.sessionId}`);
-});
+lavalink.on('ready', (data) => { });
+lavalink.on('trackStart', (data) => { });
+lavalink.on('trackEnd', (data) => { });
+lavalink.on('trackException', (data) => { });
+lavalink.on('trackStuck', (data) => { });
+lavalink.on('playerUpdate', (data) => { });
+lavalink.on('webSocketClosed', (data) => { });
+lavalink.on('stats', (data) => { });
 
-lavalink.on('trackStart', (data) => {
-  console.log(`Track started: ${data.track.info.title}`);
-});
-
-lavalink.on('trackEnd', (data) => {
-  console.log(`Track ended: ${data.track.info.title} (Reason: ${data.reason})`);
-});
-
-lavalink.on('trackException', (data) => {
-  console.error(`Track exception: ${data.exception.message}`);
-});
-
-lavalink.on('trackStuck', (data) => {
-  console.warn(`Track stuck: ${data.track.info.title}`);
-});
-
-lavalink.on('playerUpdate', (data) => {
-  console.log(`Player update for guild ${data.guildId}, position: ${data.state.position}ms`);
-});
-
-lavalink.on('webSocketClosed', (data) => {
-  console.log(`WebSocket closed for guild ${data.guildId}, code: ${data.code}`);
-});
+lavalink.off('trackStart', myHandler);
 ```
 
-## Search Types
+## Search types
 
-The library supports various search types:
+| Type | Source |
+|------|--------|
+| `ytsearch` | YouTube |
+| `ytmsearch` | YouTube Music |
+| `scsearch` | SoundCloud |
+| `spsearch` | Spotify (requires LavaSrc plugin) |
+| `dzsearch` | Deezer (requires LavaSrc plugin) |
+| `amsearch` | Apple Music (requires LavaSrc plugin) |
+| `ymsearch` | Yandex Music (requires LavaSrc plugin) |
 
-| Search Type | Description |
-|-------------|-------------|
-| `ytsearch`  | YouTube search |
-| `ytmsearch` | YouTube Music search |
-| `scsearch`  | SoundCloud search |
-| `spsearch`  | Spotify search (requires Spotify plugin) |
-| `dzsearch`  | Deezer search (requires Deezer plugin) |
-| `amsearch`  | Apple Music search (requires Apple Music plugin) |
-| `ymsearch`  | Yandex Music search (requires Yandex Music plugin) |
+## Audio filters
 
-## Audio Filters
-
-You can apply various audio filters to enhance the playback experience:
+Pass any of these in `options.filters` when calling `play()`, or update them with a separate `play()` call:
 
 ```typescript
-await lavalink.play(guildId, track, {
-  filters: {
-    volume: 1.0,
-    equalizer: [
-      { band: 0, gain: 0.2 },
-      { band: 1, gain: 0.3 },
-      // ... up to band 14
-    ],
-    karaoke: {
-      level: 1.0,
-      monoLevel: 1.0,
-      filterBand: 220.0,
-      filterWidth: 100.0
-    },
-    timescale: {
-      speed: 1.0, // Speed change
-      pitch: 1.0, // Pitch change
-      rate: 1.0   // Rate change
-    },
-    tremolo: {
-      frequency: 2.0, // Tremolo frequency
-      depth: 0.5      // Tremolo depth
-    },
-    vibrato: {
-      frequency: 2.0, // Vibrato frequency
-      depth: 0.5      // Vibrato depth
-    },
-    rotation: {
-      rotationHz: 0.0 // Rotation speed
-    },
-    distortion: {
-      sinOffset: 0.0,
-      sinScale: 1.0,
-      cosOffset: 0.0,
-      cosScale: 1.0,
-      tanOffset: 0.0,
-      tanScale: 1.0,
-      offset: 0.0,
-      scale: 1.0
-    },
-    channelMix: {
-      leftToLeft: 1.0,
-      leftToRight: 0.0,
-      rightToLeft: 0.0,
-      rightToRight: 1.0
-    },
-    lowPass: {
-      smoothing: 20.0
-    }
-  }
-});
+const filters = {
+  volume: 1.0,
+  equalizer: [
+    { band: 0, gain: 0.2 },
+    { band: 1, gain: 0.3 },
+  ],
+  karaoke: {
+    level: 1.0,
+    monoLevel: 1.0,
+    filterBand: 220.0,
+    filterWidth: 100.0,
+  },
+  timescale: {
+    speed: 1.0,
+    pitch: 1.0,
+    rate: 1.0,
+  },
+  tremolo: { frequency: 2.0, depth: 0.5 },
+  vibrato: { frequency: 2.0, depth: 0.5 },
+  rotation: { rotationHz: 0.0 },
+  distortion: {
+    sinOffset: 0.0,
+    sinScale: 1.0,
+    cosOffset: 0.0,
+    cosScale: 1.0,
+    tanOffset: 0.0,
+    tanScale: 1.0,
+    offset: 0.0,
+    scale: 1.0,
+  },
+  channelMix: {
+    leftToLeft: 1.0,
+    leftToRight: 0.0,
+    rightToLeft: 0.0,
+    rightToRight: 1.0,
+  },
+  lowPass: { smoothing: 20.0 },
+};
 ```
 
-## Logging
+See [docs/audio-filters.md](docs/audio-filters.md) for what each filter actually does.
 
-The library supports two logging levels:
+## Lavalink server setup
 
-```typescript
-// Only log errors and critical information
-const lavalink = new Lavalink({
-  // ...other options
-  logLevel: LogLevel.NORMAL
-});
-
-// Log everything including debug information
-const lavalink = new Lavalink({
-  // ...other options
-  logLevel: LogLevel.DEBUG
-});
-```
+See [docs/lavalink-setup.md](docs/lavalink-setup.md).
 
 ## Examples
 
-Check out the [examples directory](https://github.com/TejasLamba2006/discord-lavalink/tree/main/example) for more usage examples:
-
-- Basic usage
-- Search functionality
-- Audio filters
-- Event handling
+The [example/](example/) directory has a basic bot and a search example.
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+Open a PR. Fork the repo, make your change, and submit it against `main`. If you're fixing a bug, a test case reproducing the issue is appreciated.
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## Support
-
-If you need help with this library, you can:
-
-- [Open an issue](https://github.com/TejasLamba2006/discord-lavalink/issues)
+MIT — see [LICENSE](LICENSE).
 
 ## Credits
 
-- [TejasLamba2006](https://github.com/TejasLamba2006)
+Built by [TejasLamba2006](https://github.com/TejasLamba2006).

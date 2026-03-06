@@ -1,16 +1,8 @@
-/**
- * Tests for discord-lavalink package
- *
- * This file contains comprehensive tests for the Lavalink class and its functionality.
- * It uses Jest for testing and mocks external dependencies like Discord.js, WebSocket, and Axios.
- */
-
 import { Client, GatewayIntentBits } from 'discord.js';
 import { Lavalink, LogLevel } from '../src';
 import axios from 'axios';
 import WebSocket from 'ws';
 
-// Mock Discord.js with GatewayDispatchEvents
 jest.mock('discord.js', () => ({
   Client: jest.fn(),
   GatewayIntentBits: {
@@ -23,11 +15,9 @@ jest.mock('discord.js', () => ({
   },
 }));
 
-// Mock other external dependencies
 jest.mock('axios');
 jest.mock('ws');
 
-// Mock data for tests
 const mockTrack = {
   encoded: 'base64EncodedTrackData',
   info: {
@@ -52,6 +42,20 @@ const mockSearchResult = {
   data: [mockTrack],
 };
 
+const mockTrackResult = {
+  loadType: 'track',
+  data: mockTrack,
+};
+
+const mockPlaylistResult = {
+  loadType: 'playlist',
+  data: {
+    info: { name: 'My Playlist', selectedTrack: 0 },
+    pluginInfo: {},
+    tracks: [mockTrack],
+  },
+};
+
 const mockPlayerData = {
   track: mockTrack,
   volume: 100,
@@ -59,28 +63,24 @@ const mockPlayerData = {
   filters: {},
 };
 
-// Mock axios responses
 const mockAxiosGet = jest.fn();
 const mockAxiosPatch = jest.fn();
 
-// Setup axios mock
 (axios.create as jest.Mock).mockReturnValue({
   get: mockAxiosGet,
   patch: mockAxiosPatch,
 });
 
-// Mock WebSocket
 const mockWebSocketOn = jest.fn();
 const mockWebSocketSend = jest.fn();
 const mockWebSocketClose = jest.fn();
-const mockWebSocketHandlers = {
+const mockWebSocketHandlers: Record<string, any> = {
   open: null,
   message: null,
   error: null,
   close: null,
 };
 
-// Store event handlers when they're registered
 mockWebSocketOn.mockImplementation((event, callback) => {
   mockWebSocketHandlers[event] = callback;
   return { on: mockWebSocketOn };
@@ -92,7 +92,6 @@ mockWebSocketOn.mockImplementation((event, callback) => {
   close: mockWebSocketClose,
 }));
 
-// Mock Discord.js Client
 const mockClientOn = jest.fn();
 const mockClientWsOn = jest.fn();
 
@@ -108,7 +107,6 @@ const mockClientWsOn = jest.fn();
     id: 'mockUserId',
     tag: 'MockBot#0000',
   },
-
   _events: {},
   _eventsCount: 0,
   _voiceStateUpdateHandler: null,
@@ -135,7 +133,6 @@ describe('Lavalink', () => {
       logLevel: LogLevel.NORMAL,
     });
 
-    // Manually set the sessionId for testing
     // @ts-expect-error - Accessing private property for testing
     lavalink.sessionId = 'mockSessionId';
 
@@ -177,6 +174,41 @@ describe('Lavalink', () => {
       expect(mockWebSocketClose).toHaveBeenCalled();
     });
 
+    test('should not reconnect after intentional disconnect', async () => {
+      jest.useFakeTimers();
+
+      lavalink.connect();
+      lavalink.disconnect();
+
+      const closeHandler = mockWebSocketOn.mock.calls.find((call) => call[0] === 'close')?.[1];
+      if (closeHandler) {
+        closeHandler(1000, Buffer.from('normal'));
+      }
+
+      jest.runAllTimers();
+
+      expect(WebSocket).toHaveBeenCalledTimes(1);
+
+      jest.useRealTimers();
+    });
+
+    test('should reconnect after unintentional disconnect', async () => {
+      jest.useFakeTimers();
+
+      lavalink.connect();
+
+      const closeHandler = mockWebSocketOn.mock.calls.find((call) => call[0] === 'close')?.[1];
+      if (closeHandler) {
+        closeHandler(1006, Buffer.from('abnormal'));
+      }
+
+      jest.runAllTimers();
+
+      expect(WebSocket).toHaveBeenCalledTimes(2);
+
+      jest.useRealTimers();
+    });
+
     test('should configure session resuming', async () => {
       lavalink.connect();
 
@@ -214,6 +246,23 @@ describe('Lavalink', () => {
       expect(result).toEqual(mockSearchResult);
     });
 
+    test('should load any http URL directly without search prefix', async () => {
+      lavalink.connect();
+
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      await lavalink.tracks('https://www.deezer.com/track/123456', 'spsearch');
+
+      expect(mockAxiosGet).toHaveBeenCalledWith(
+        '/loadtracks',
+        expect.objectContaining({
+          params: {
+            identifier: 'https://www.deezer.com/track/123456',
+          },
+        })
+      );
+    });
+
     test('should load tracks from URL', async () => {
       lavalink.connect();
 
@@ -235,12 +284,42 @@ describe('Lavalink', () => {
   });
 
   describe('Playback Control', () => {
-    test('should play a track', async () => {
+    test('should play a Datum track', async () => {
       lavalink.connect();
 
       await new Promise((resolve) => setTimeout(resolve, 50));
 
       await lavalink.play('guildId', mockTrack);
+
+      expect(mockAxiosPatch).toHaveBeenCalledWith(
+        '/sessions/mockSessionId/players/guildId',
+        expect.objectContaining({
+          track: { encoded: 'base64EncodedTrackData' },
+        })
+      );
+    });
+
+    test('should play from a track-type TracksResult', async () => {
+      lavalink.connect();
+
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      await lavalink.play('guildId', mockTrackResult as any);
+
+      expect(mockAxiosPatch).toHaveBeenCalledWith(
+        '/sessions/mockSessionId/players/guildId',
+        expect.objectContaining({
+          track: { encoded: 'base64EncodedTrackData' },
+        })
+      );
+    });
+
+    test('should play first track from a playlist-type TracksResult', async () => {
+      lavalink.connect();
+
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      await lavalink.play('guildId', mockPlaylistResult as any);
 
       expect(mockAxiosPatch).toHaveBeenCalledWith(
         '/sessions/mockSessionId/players/guildId',
@@ -286,7 +365,23 @@ describe('Lavalink', () => {
       );
     });
 
-    test('should stop playback', async () => {
+    test('should pass noReplace param when specified', async () => {
+      lavalink.connect();
+
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      await lavalink.play('guildId', mockTrack, { noReplace: true });
+
+      expect(mockAxiosPatch).toHaveBeenCalledWith(
+        '/sessions/mockSessionId/players/guildId',
+        expect.objectContaining({
+          track: { encoded: 'base64EncodedTrackData' },
+        }),
+        { params: { noReplace: true } }
+      );
+    });
+
+    test('should stop playback with correct Lavalink v4 body', async () => {
       lavalink.connect();
 
       await new Promise((resolve) => setTimeout(resolve, 50));
@@ -296,7 +391,7 @@ describe('Lavalink', () => {
       expect(mockAxiosPatch).toHaveBeenCalledWith(
         '/sessions/mockSessionId/players/guildId',
         expect.objectContaining({
-          track: null,
+          track: { encoded: null },
         })
       );
     });
@@ -573,6 +668,59 @@ describe('Lavalink', () => {
         })
       );
     });
+
+    test('should remove a listener with off()', async () => {
+      const listener = jest.fn();
+      lavalink.on('trackStart', listener);
+      lavalink.off('trackStart', listener);
+
+      lavalink.connect();
+
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      const messageHandler = mockWebSocketOn.mock.calls.find((call) => call[0] === 'message')[1];
+
+      messageHandler(
+        JSON.stringify({
+          op: 'event',
+          type: 'TrackStartEvent',
+          guildId: 'guildId',
+          track: mockTrack,
+        })
+      );
+
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      expect(listener).not.toHaveBeenCalled();
+    });
+
+    test('should keep other listeners when one is removed with off()', async () => {
+      const listener1 = jest.fn();
+      const listener2 = jest.fn();
+      lavalink.on('trackStart', listener1);
+      lavalink.on('trackStart', listener2);
+      lavalink.off('trackStart', listener1);
+
+      lavalink.connect();
+
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      const messageHandler = mockWebSocketOn.mock.calls.find((call) => call[0] === 'message')[1];
+
+      messageHandler(
+        JSON.stringify({
+          op: 'event',
+          type: 'TrackStartEvent',
+          guildId: 'guildId',
+          track: mockTrack,
+        })
+      );
+
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      expect(listener1).not.toHaveBeenCalled();
+      expect(listener2).toHaveBeenCalled();
+    });
   });
 
   describe('Error Handling', () => {
@@ -614,6 +762,55 @@ describe('Lavalink', () => {
   });
 
   describe('Voice Updates', () => {
+    test('should clean up voice state when bot leaves voice channel', async () => {
+      lavalink.connect();
+
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      const voiceStateHandler = mockClientWsOn.mock.calls.find(
+        (call) => call[0] === 'VOICE_STATE_UPDATE'
+      )?.[1];
+
+      if (!voiceStateHandler) return;
+
+      voiceStateHandler({
+        guild_id: 'guildId',
+        user_id: 'mockUserId',
+        session_id: 'voiceSessionId',
+        channel_id: 'someChannelId',
+      });
+
+      voiceStateHandler({
+        guild_id: 'guildId',
+        user_id: 'mockUserId',
+        session_id: 'voiceSessionId',
+        channel_id: null,
+      });
+
+      const voiceServerHandler = mockClientWsOn.mock.calls.find(
+        (call) => call[0] === 'VOICE_SERVER_UPDATE'
+      )?.[1];
+
+      if (!voiceServerHandler) return;
+
+      voiceServerHandler({
+        guild_id: 'guildId',
+        token: 'voiceToken',
+        endpoint: 'voiceEndpoint',
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      expect(mockAxiosPatch).not.toHaveBeenCalledWith(
+        '/sessions/mockSessionId/players/guildId',
+        expect.objectContaining({
+          voice: expect.objectContaining({
+            sessionId: 'voiceSessionId',
+          }),
+        })
+      );
+    });
+
     test.skip('should handle voice state update', async () => {
       lavalink.connect();
 
@@ -623,6 +820,7 @@ describe('Lavalink', () => {
         guild_id: 'guildId',
         user_id: 'mockUserId',
         session_id: 'voiceSessionId',
+        channel_id: 'someChannelId',
       };
 
       const voiceStateHandler = mockClientWsOn.mock.calls.find(
