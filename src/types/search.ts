@@ -4,19 +4,19 @@
  */
 export type SearchType =
   /** Standard YouTube search */
-  | "ytsearch"
+  | 'ytsearch'
   /** YouTube Music search */
-  | "ytmsearch"
+  | 'ytmsearch'
   /** SoundCloud search */
-  | "scsearch"
+  | 'scsearch'
   /** Spotify search (requires Lavasrc plugin) */
-  | "spsearch"
+  | 'spsearch'
   /** Deezer search (requires Lavasrc plugin) */
-  | "dzsearch"
+  | 'dzsearch'
   /** Apple Music search (requires Lavasrc plugin) */
-  | "amsearch"
+  | 'amsearch'
   /** Yandex Music search (requires Lavasrc plugin) */
-  | "ymsearch";
+  | 'ymsearch';
 
 /**
  * Result of a track search or load operation
@@ -30,7 +30,7 @@ export interface TracksResult {
    * - empty: No matches were found
    * - error: An error occurred
    */
-  loadType: "track" | "playlist" | "search" | "empty" | "error";
+  loadType: 'track' | 'playlist' | 'search' | 'empty' | 'error';
   /**
    * Array of track data returned by Lavalink
    */

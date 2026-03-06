@@ -1,4 +1,4 @@
-import { Info, PluginInfo } from "./search";
+import { Info, PluginInfo } from './search';
 
 /**
  * Event interfaces for all events emitted by the Lavalink server
@@ -9,7 +9,7 @@ import { Info, PluginInfo } from "./search";
  * Event received when a connection to Lavalink is established
  */
 export interface ReadyEvent {
-  op: "ready";
+  op: 'ready';
   resumed: boolean;
   sessionId: string;
 }
@@ -18,7 +18,7 @@ export interface ReadyEvent {
  * Event containing server statistics periodically sent by Lavalink
  */
 export interface StatsEvent {
-  op: "stats";
+  op: 'stats';
   frameStats: null | {
     sent: number;
     nulled: number;
@@ -44,7 +44,7 @@ export interface StatsEvent {
  * Event containing player state updates sent periodically by Lavalink
  */
 export interface PlayerUpdateEvent {
-  op: "playerUpdate";
+  op: 'playerUpdate';
   state: {
     time: number;
     position: number;
@@ -58,8 +58,8 @@ export interface PlayerUpdateEvent {
  * Event emitted when a track begins playing
  */
 export interface TrackStartEvent {
-  op: "event";
-  type: "TrackStartEvent";
+  op: 'event';
+  type: 'TrackStartEvent';
   guildId: string;
   track: {
     encoded: string;
@@ -73,8 +73,8 @@ export interface TrackStartEvent {
  * Event emitted when a track finishes playing or is stopped
  */
 export interface TrackEndEvent {
-  op: "event";
-  type: "TrackEndEvent";
+  op: 'event';
+  type: 'TrackEndEvent';
   guildId: string;
   track: {
     encoded: string;
@@ -82,15 +82,15 @@ export interface TrackEndEvent {
     pluginInfo: PluginInfo;
     userData: PluginInfo;
   };
-  reason: "finished" | "loadFailed" | "stopped" | "replaced" | "cleanup";
+  reason: 'finished' | 'loadFailed' | 'stopped' | 'replaced' | 'cleanup';
 }
 
 /**
  * Event emitted when an error occurs during track playback
  */
 export interface TrackExceptionEvent {
-  op: "event";
-  type: "TrackExceptionEvent";
+  op: 'event';
+  type: 'TrackExceptionEvent';
   guildId: string;
   track: {
     encoded: string;
@@ -100,7 +100,7 @@ export interface TrackExceptionEvent {
   };
   exception: {
     message: string | null;
-    severity: "common" | "suspicious" | "fault";
+    severity: 'common' | 'suspicious' | 'fault';
     cause: string;
   };
 }
@@ -109,8 +109,8 @@ export interface TrackExceptionEvent {
  * Event emitted when a track gets stuck during playback
  */
 export interface TrackStuckEvent {
-  op: "event";
-  type: "TrackStuckEvent";
+  op: 'event';
+  type: 'TrackStuckEvent';
   guildId: string;
   track: {
     encoded: string;
@@ -125,8 +125,8 @@ export interface TrackStuckEvent {
  * Event emitted when the WebSocket connection to Discord voice servers is closed
  */
 export interface WebSocketClosedEvent {
-  op: "event";
-  type: "WebSocketClosedEvent";
+  op: 'event';
+  type: 'WebSocketClosedEvent';
   guildId: string;
   code: number;
   reason: string;
